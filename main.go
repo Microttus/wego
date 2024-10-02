@@ -81,6 +81,15 @@ func main() {
 	}
 	r := be.Fetch(*location, *numdays)
 
+	log.Println("Location:")
+	log.Println(r.Location)
+	log.Println("Weather")
+	log.Println(r.Forecast)
+	log.Println("Current")
+	log.Println(r.Current)
+	log.Println("GeoLoc")
+	log.Println(r.GeoLoc)
+
 	// set unit system
 	unit := iface.UnitsMetric
 	if *unitSystem == "imperial" {
