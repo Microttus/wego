@@ -18,28 +18,55 @@ type yrConfig struct {
 type yrResponse struct {
 	Type     string `json:"type"`
 	Geometry struct {
-		Type        string `json:"type"`
-		Coordinates struct {
-			Zero int64 `json:"0"`
-			One  int64 `json:"1"`
-			Two  int64 `json:"2"`
-		} `json:"coordinates"`
+		Type        string    `json:"type"`
+		Coordinates []float64 `json:"coordinates"`
 	} `json:"geometry"`
-	List []propertiesBlock `json:"properties"`
+	Properties struct {
+		Meta struct {
+			UpdatedAt string `json:"updated_at"`
+			Units     struct {
+				AirTemperature string `json:"air_temperature"`
+			} `json:"units"`
+		} `json:"meta"`
+		TimeSeries []timeSeriesBlock `json:"timeseries"`
+	} `json:"properties"`
 }
 
-type propertiesBlock struct {
-	Meta struct {
-		UpdatedAt string `json:"updated_at"`
-		Units     struct {
-			AirTemperature string `json:"air_temperature"`
-		} `json:"units"`
-	} `json:"meta"`
-	TimeSeries struct {
-		Current struct {
-			Time string `json:"time"`
-		} `json:"0"`
-	} `json:"timeseries"`
+type timeSeriesBlock struct {
+	Time string `json:"time"`
+	Data struct {
+		Instant struct {
+			Details struct {
+				AirPressureAtSeaLevel float64 `json:"air_pressure_at_sea_level"`
+				AirTemperature        float64 `json:"air_temperature"`
+				CloudAreaFraction     float64 `json:"cloud_area_fraction"`
+				RelativeHumidity      float64 `json:"relative_humidity"`
+				WindFromDirection     float64 `json:"wind_from_direction"`
+				WindSpeed             float64 `json:"wind_speed"`
+			} `json:"details"`
+		} `json:"instant"`
+		Next12Hours struct {
+			Summary struct {
+				SymbolCode string `json:"symbol_code"`
+			} `json:"summary"`
+		} `json:"next_12_hours"`
+		Next1Hours struct {
+			Summary struct {
+				SymbolCode string `json:"symbol_code"`
+			} `json:"summary"`
+			Details struct {
+				PrecipitationAmount float64 `json:"precipitation_amount"`
+			} `json:"details"`
+		} `json:"next_1_hours"`
+		Next6Hours struct {
+			Summary struct {
+				SymbolCode string `json:"symbol_code"`
+			} `json:"summary"`
+			Details struct {
+				PrecipitationAmount float64 `json:"precipitation_amount"`
+			} `json:"details"`
+		} `json:"next_6_hours"`
+	} `json:"data"`
 }
 
 const (
@@ -53,7 +80,7 @@ func (c *yrConfig) Setup() {
 }
 
 func (c *yrConfig) fetch(url string) (*yrResponse, error) {
-	c.debug = true
+	//c.debug = true
 	if c.debug {
 		fmt.Printf("Fetching %s\n", url)
 	}
@@ -94,6 +121,7 @@ func (c *yrConfig) fetch(url string) (*yrResponse, error) {
 		return nil, fmt.Errorf("Erroneous response body: %s", string(body))
 	} else {
 		log.Println("Successfully fetched yr " + resp.Type)
+		log.Println("Weather now: " + resp.Properties.TimeSeries[0].Data.Next12Hours.Summary.SymbolCode)
 	}
 	return &resp, nil
 }
