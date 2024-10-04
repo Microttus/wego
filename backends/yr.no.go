@@ -55,7 +55,7 @@ type timeSeriesBlock struct {
 				SymbolCode string `json:"symbol_code"`
 			} `json:"summary"`
 			Details struct {
-				PrecipitationAmount float64 `json:"precipitation_amount"`
+				PrecipitationAmount float32 `json:"precipitation_amount"`
 			} `json:"details"`
 		} `json:"next_1_hours"`
 		Next6Hours struct {
@@ -77,6 +77,34 @@ func (c *yrConfig) Setup() {
 	//flag.StringVar(&c.apiKey, "wwo-api-key", "", "worldweatheronline backend: the api `KEY` to use")
 	//flag.StringVar(&c.language, "wwo-lang", "en", "worldweatheronline backend: the `LANGUAGE` to request from worldweatheronline")
 	//flag.BoolVar(&c.debug, "wwo-debug", false, "worldweatheronline backend: print raw requests and responses")
+}
+
+func (c *yrConfig) conditionParser(dayInfo timeSeriesBlock) (iface.Cond, error) {
+	var ret iface.Cond
+	yrWeatherMap := map[string]iface.WeatherCode{
+		"clearsky_night":   iface.CodeSunny,
+		"clearsky_day":     iface.CodeSunny,
+		"cloudy":           iface.CodeCloudy,
+		"partlycloudy_day": iface.CodePartlyCloudy,
+	}
+
+	if val, ok := yrWeatherMap[dayInfo.Data.Next1Hours.Summary.SymbolCode]; ok {
+		ret.Code = val
+	} else {
+		ret.Code = iface.CodeUnknown
+	}
+	if &dayInfo.Data.Next1Hours.Details.PrecipitationAmount != nil {
+		mmh := dayInfo.Data.Next1Hours.Details.PrecipitationAmount / 1000
+		ret.PrecipM = &mmh
+	}
+
+	return ret, nil
+}
+
+func (c *yrConfig) dayParser(series []timeSeriesBlock, numDays int) []iface.Day {
+	var forecast []iface.Day
+
+	return forecast
 }
 
 func (c *yrConfig) fetch(url string) (*yrResponse, error) {
@@ -121,7 +149,7 @@ func (c *yrConfig) fetch(url string) (*yrResponse, error) {
 		return nil, fmt.Errorf("Erroneous response body: %s", string(body))
 	} else {
 		log.Println("Successfully fetched yr " + resp.Type)
-		log.Println("Weather now: " + resp.Properties.TimeSeries[0].Data.Next12Hours.Summary.SymbolCode)
+		log.Println("Weather now: " + resp.Properties.TimeSeries[0].Data.Next1Hours.Summary.SymbolCode)
 	}
 	return &resp, nil
 }
@@ -141,9 +169,11 @@ func (c *yrConfig) Fetch(location string, numdays int) iface.Data {
 		loc = "q=" + location
 	}
 
-	c.fetch(yrURI + loc)
-	// resp, err :=¨
-
+	resp, err := c.fetch(yrURI + loc)
+	if err != nil {
+		log.Fatalf("Failed to fetch weather data: %v\n", err)
+	}
+	ret.Current, _ = c.conditionParser(resp.Properties.TimeSeries[0])
 	ret.Location = fmt.Sprintf("%s", loc)
 
 	//if err != nil {
