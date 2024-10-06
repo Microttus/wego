@@ -72,8 +72,32 @@ type timeSeriesBlock struct {
 	} `json:"data"`
 }
 
+type geonameResponse struct {
+	TotalResultsCount int `json:"totalResultsCount"`
+	Geonames          []struct {
+		AdminCode1  string `json:"adminCode1"`
+		Lng         string `json:"lng"`
+		ToponymName string `json:"toponymName"`
+		CountryId   string `json:"countryId"`
+		Fcl         string `json:"fcl"`
+		Population  int    `json:"population"`
+		CountryCode string `json:"countryCode"`
+		Name        string `json:"name"`
+		FclName     string `json:"fclName"`
+		AdminCodes1 struct {
+			ISO3166_2 string `json:"ISO3166_2"`
+		} `json:"adminCodes1"`
+		CountryName string `json:"countryName"`
+		FcodeName   string `json:"fcodeName"`
+		AdminName1  string `json:"adminName1"`
+		Lat         string `json:"lat"`
+		Fcode       string `json:"fcode"`
+	} `json:"geonames"`
+}
+
 const (
-	yrURI = "https://api.met.no/weatherapi/locationforecast/2.0/compact?"
+	yrURI       = "https://api.met.no/weatherapi/locationforecast/2.0/compact?"
+	geonamesURI = "http://api.geonames.org/searchJSON?"
 )
 
 func (c *yrConfig) Setup() {
@@ -206,6 +230,51 @@ func (c *yrConfig) dayParser(series []timeSeriesBlock, numDays int) []iface.Day 
 	return forecast
 }
 
+func (c *yrConfig) geonameParser(url string) (geoName string, geoCoordinates string, err error) {
+	//Create a new HTTP client
+	client := &http.Client{}
+
+	// Create a new HTTP GET request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("Failed to create request: %v", err)
+	}
+
+	// Set the custom User-Agent header
+	//req.Header.Set("User-Agent", "YrForWegoApp/1.0")
+
+	// Execute the request
+	res, err := client.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("Unable to get (%s): %v", url, err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(res.Body)
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", "", fmt.Errorf("Unable to read response body (%s): %v", url, err)
+	}
+	if c.debug {
+		fmt.Printf("Response (%s):\n%s\n", url, string(body))
+	}
+
+	var resp geonameResponse
+	if err = json.Unmarshal(body, &resp); err != nil {
+		return "", "", fmt.Errorf("Unable to unmarshal response (%s): %v\nThe json body is: %s", url, err, string(body))
+	}
+
+	retGeoName := resp.Geonames[0].Name + ", " + resp.Geonames[0].AdminName1 + ", " + resp.Geonames[0].CountryName
+	retGeoCoordinates := "lat=" + resp.Geonames[0].Lat + "&lon=" + resp.Geonames[0].Lng
+
+	return retGeoName, retGeoCoordinates, nil
+
+}
+
 func (c *yrConfig) fetch(url string) (*yrResponse, error) {
 	//c.debug = true
 	if c.debug {
@@ -260,14 +329,23 @@ func (c *yrConfig) Fetch(location string, numdays int) iface.Data {
 	//var resp yrResponse
 	var ret iface.Data
 	loc := ""
+	var name string
 
 	if matched, err := regexp.MatchString(`^-?[0-9]*(\.[0-9]+)?,-?[0-9]*(\.[0-9]+)?$`, location); matched && err == nil {
 		s := strings.Split(location, ",")
 		loc = fmt.Sprintf("lat=%s&lon=%s", s[0], s[1])
+		name = loc
 	} else if matched, err = regexp.MatchString(`^[0-9].*`, location); matched && err == nil {
 		loc = "zip=" + location
 	} else {
-		loc = "q=" + location
+		qLocation := fmt.Sprintf("%sq=%s&maxRows=1&username=yrforwego", geonamesURI, location)
+		retName, coord, err := c.geonameParser(qLocation)
+		if err != nil {
+			log.Fatalf("Failed to find location: %s\n", err)
+		} else {
+			loc = coord
+			name = retName
+		}
 	}
 
 	resp, err := c.fetch(yrURI + loc)
@@ -275,11 +353,7 @@ func (c *yrConfig) Fetch(location string, numdays int) iface.Data {
 		log.Fatalf("Failed to fetch weather data: %v\n", err)
 	}
 	ret.Current, _ = c.conditionParser(resp.Properties.TimeSeries[0])
-	ret.Location = fmt.Sprintf("%s", loc)
-
-	if err != nil {
-		log.Fatalf("Failed to fetch weather data: %v\n", err)
-	}
+	ret.Location = fmt.Sprintf("%s", name)
 
 	if numdays == 0 {
 		return ret
