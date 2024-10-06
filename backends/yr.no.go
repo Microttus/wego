@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type yrConfig struct {
-	debug bool
+	apiKey string
+	lang   string
+	debug  bool
 }
 
 type yrResponse struct {
@@ -37,12 +40,12 @@ type timeSeriesBlock struct {
 	Data struct {
 		Instant struct {
 			Details struct {
-				AirPressureAtSeaLevel float64 `json:"air_pressure_at_sea_level"`
-				AirTemperature        float64 `json:"air_temperature"`
-				CloudAreaFraction     float64 `json:"cloud_area_fraction"`
-				RelativeHumidity      float64 `json:"relative_humidity"`
-				WindFromDirection     float64 `json:"wind_from_direction"`
-				WindSpeed             float64 `json:"wind_speed"`
+				AirPressureAtSeaLevel float32 `json:"air_pressure_at_sea_level"`
+				AirTemperature        float32 `json:"air_temperature"`
+				CloudAreaFraction     float32 `json:"cloud_area_fraction"`
+				RelativeHumidity      float32 `json:"relative_humidity"`
+				WindFromDirection     float32 `json:"wind_from_direction"`
+				WindSpeed             float32 `json:"wind_speed"`
 			} `json:"details"`
 		} `json:"instant"`
 		Next12Hours struct {
@@ -63,7 +66,7 @@ type timeSeriesBlock struct {
 				SymbolCode string `json:"symbol_code"`
 			} `json:"summary"`
 			Details struct {
-				PrecipitationAmount float64 `json:"precipitation_amount"`
+				PrecipitationAmount float32 `json:"precipitation_amount"`
 			} `json:"details"`
 		} `json:"next_6_hours"`
 	} `json:"data"`
@@ -82,27 +85,129 @@ func (c *yrConfig) Setup() {
 func (c *yrConfig) conditionParser(dayInfo timeSeriesBlock) (iface.Cond, error) {
 	var ret iface.Cond
 	yrWeatherMap := map[string]iface.WeatherCode{
-		"clearsky_night":   iface.CodeSunny,
-		"clearsky_day":     iface.CodeSunny,
-		"cloudy":           iface.CodeCloudy,
-		"partlycloudy_day": iface.CodePartlyCloudy,
+		"clearsky_night":                    iface.CodeSunny,
+		"clearsky_day":                      iface.CodeSunny,
+		"cloudy":                            iface.CodeCloudy,
+		"fair_day":                          iface.CodePartlyCloudy,
+		"fair_night":                        iface.CodePartlyCloudy,
+		"fog":                               iface.CodeFog,
+		"heavyrain":                         iface.CodeHeavyRain,
+		"heavyrainthunder":                  iface.CodeThunderyHeavyRain,
+		"heavyrainshowers_day":              iface.CodeHeavyShowers,
+		"heavyrainshowers_night":            iface.CodeHeavyShowers,
+		"heavyrainshowersandthunder_day":    iface.CodeThunderyHeavyRain,
+		"heavyrainshowersandthunder_night":  iface.CodeThunderyHeavyRain,
+		"heavysleet":                        iface.CodeHeavySnowShowers,
+		"heavysleetandthunder":              iface.CodeThunderySnowShowers,
+		"heavysleetshowers_day":             iface.CodeHeavySnowShowers,
+		"heavysleetshowers_night":           iface.CodeHeavySnowShowers,
+		"heavysleetshowersandthunder_day":   iface.CodeThunderySnowShowers,
+		"heavysleetshowersandthunder_night": iface.CodeThunderySnowShowers,
+		"heavysnow":                         iface.CodeHeavySnow,
+		"heavysnowandthunder":               iface.CodeThunderySnowShowers,
+		"heavysnowshowers_day":              iface.CodeHeavySnowShowers,
+		"heavysnowshowers_night":            iface.CodeHeavySnowShowers,
+		"heavysnowshowersandthunder_day":    iface.CodeThunderySnowShowers,
+		"heavysnowshowersandthunder_night":  iface.CodeThunderySnowShowers,
+		"lightrain":                         iface.CodeLightRain,
+		"lightrainandthunder":               iface.CodeThunderyShowers,
+		"lightrainshowers_day":              iface.CodeLightShowers,
+		"lightrainshowers_night":            iface.CodeLightShowers,
+		"lightrainshowersandthunder_day":    iface.CodeThunderyShowers,
+		"lightrainshowersandthunder_night":  iface.CodeThunderyShowers,
+		"lightsleet":                        iface.CodeLightSleet,
+		"lightsleetandthunder":              iface.CodeThunderySnowShowers,
+		"lightsleetshowers_day":             iface.CodeLightSleetShowers,
+		"lightsleetshowers_night":           iface.CodeLightSleetShowers,
+		"lightsnow":                         iface.CodeLightSnow,
+		"lightsnowandthunder":               iface.CodeThunderySnowShowers,
+		"lightsnowshowers_day":              iface.CodeThunderySnowShowers,
+		"lightsnowshowers_night":            iface.CodeThunderySnowShowers,
+		"lightsleetshowersandthunder_day":   iface.CodeThunderySnowShowers,
+		"lightsleetshowersandthunder_night": iface.CodeThunderySnowShowers,
+		"partlycloudy_day":                  iface.CodePartlyCloudy,
+		"partlycloudy_night":                iface.CodePartlyCloudy,
+		"rain":                              iface.CodeLightRain,
+		"rainandthunder":                    iface.CodeThunderyShowers,
+		"rainshowers_day":                   iface.CodeLightShowers,
+		"rainshowers_night":                 iface.CodeLightShowers,
+		"rainshowersandthunder_day":         iface.CodeThunderyShowers,
+		"rainshowersandthunder_night":       iface.CodeThunderyShowers,
+		"sleet":                             iface.CodeLightSleet,
+		"sleetandthunder":                   iface.CodeThunderySnowShowers,
+		"sleetshowers_day":                  iface.CodeLightSleetShowers,
+		"sleetshowers_night":                iface.CodeLightSleetShowers,
+		"sleetshowersandthunder_day":        iface.CodeThunderyShowers,
+		"sleetshowersandthunder_night":      iface.CodeThunderyShowers,
+		"snow":                              iface.CodeHeavySnow,
+		"snowandthunder":                    iface.CodeThunderySnowShowers,
+		"snowshowers_day":                   iface.CodeHeavySnowShowers,
+		"snowshowers_night":                 iface.CodeHeavySnowShowers,
+		"snowshowersandthunder_day":         iface.CodeThunderyShowers,
+		"snowshowersandthunder_night":       iface.CodeThunderyShowers,
 	}
 
-	if val, ok := yrWeatherMap[dayInfo.Data.Next1Hours.Summary.SymbolCode]; ok {
+	if val, ok := yrWeatherMap[dayInfo.Data.Next6Hours.Summary.SymbolCode]; ok {
 		ret.Code = val
 	} else {
 		ret.Code = iface.CodeUnknown
 	}
-	if &dayInfo.Data.Next1Hours.Details.PrecipitationAmount != nil {
-		mmh := dayInfo.Data.Next1Hours.Details.PrecipitationAmount / 1000
+
+	temp := dayInfo.Data.Instant.Details.AirTemperature
+	ret.TempC = &temp
+
+	if &dayInfo.Data.Next6Hours.Details.PrecipitationAmount != nil {
+		mmh := dayInfo.Data.Next6Hours.Details.PrecipitationAmount / 1000
 		ret.PrecipM = &mmh
 	}
+
+	WindKmph := dayInfo.Data.Instant.Details.WindSpeed / 3.6
+	ret.WindspeedKmph = &WindKmph
+
+	WindDeg := int(dayInfo.Data.Instant.Details.WindFromDirection)
+	ret.WinddirDegree = &WindDeg
+
+	Humid := int(dayInfo.Data.Instant.Details.RelativeHumidity)
+	ret.Humidity = &Humid
+
+	ret.Time, _ = time.Parse(time.RFC3339, dayInfo.Time)
 
 	return ret, nil
 }
 
 func (c *yrConfig) dayParser(series []timeSeriesBlock, numDays int) []iface.Day {
 	var forecast []iface.Day
+	var day *iface.Day
+
+	for _, data := range series {
+		slot, err := c.conditionParser(data)
+		if err != nil {
+			log.Println("Error parsing hourly weather condition:", err)
+			continue
+		}
+		if day == nil {
+			day = new(iface.Day)
+			day.Date = slot.Time
+		}
+		if day.Date.Day() == slot.Time.Day() {
+			day.Slots = append(day.Slots, slot)
+		}
+		if day.Date.Day() != slot.Time.Day() {
+			forecast = append(forecast, *day)
+			if len(forecast) >= numDays {
+				break
+			}
+			day = new(iface.Day)
+			day.Date = slot.Time
+			day.Slots = append(day.Slots, slot)
+		}
+		print(day.Date.Day(), slot.Time.Day())
+		print(" - ")
+		print(slot.Time.Clock())
+		print(" - ")
+		println(*slot.PrecipM)
+
+	}
 
 	return forecast
 }
@@ -130,7 +235,12 @@ func (c *yrConfig) fetch(url string) (*yrResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Unable to get (%s): %v", url, err)
 	}
-	defer res.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(res.Body)
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
@@ -147,9 +257,6 @@ func (c *yrConfig) fetch(url string) (*yrResponse, error) {
 	}
 	if resp.Type != "Feature" {
 		return nil, fmt.Errorf("Erroneous response body: %s", string(body))
-	} else {
-		log.Println("Successfully fetched yr " + resp.Type)
-		log.Println("Weather now: " + resp.Properties.TimeSeries[0].Data.Next1Hours.Summary.SymbolCode)
 	}
 	return &resp, nil
 }
@@ -176,11 +283,14 @@ func (c *yrConfig) Fetch(location string, numdays int) iface.Data {
 	ret.Current, _ = c.conditionParser(resp.Properties.TimeSeries[0])
 	ret.Location = fmt.Sprintf("%s", loc)
 
-	//if err != nil {
-	//	log.Fatalf("Failed to fetch weather data: %v\n", err)
-	//}
+	if err != nil {
+		log.Fatalf("Failed to fetch weather data: %v\n", err)
+	}
 
-	print("Fetch yr")
+	if numdays == 0 {
+		return ret
+	}
+	ret.Forecast = c.dayParser(resp.Properties.TimeSeries, numdays)
 
 	return ret
 }
