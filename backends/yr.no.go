@@ -201,12 +201,6 @@ func (c *yrConfig) dayParser(series []timeSeriesBlock, numDays int) []iface.Day 
 			day.Date = slot.Time
 			day.Slots = append(day.Slots, slot)
 		}
-		print(day.Date.Day(), slot.Time.Day())
-		print(" - ")
-		print(slot.Time.Clock())
-		print(" - ")
-		println(*slot.PrecipM)
-
 	}
 
 	return forecast
