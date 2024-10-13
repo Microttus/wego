@@ -95,9 +95,79 @@ type geonameResponse struct {
 	} `json:"geonames"`
 }
 
+type sunResponse struct {
+	Copyright  string `json:"copyright"`
+	LicenseURL string `json:"licenseURL"`
+	Type       string `json:"type"`
+	Geometry   struct {
+		Type        string    `json:"type"`
+		Coordinates []float64 `json:"coordinates"`
+	} `json:"geometry"`
+	When struct {
+		Interval []string `json:"interval"`
+	} `json:"when"`
+	Properties struct {
+		Body    string `json:"body"`
+		Sunrise struct {
+			Time    string `json:"time"`
+			Azimuth string `json:"azimuth"`
+		} `json:"sunrise"`
+		Sunset struct {
+			Time    string  `json:"time"`
+			Azimuth float64 `json:"azimuth"`
+		} `json:"sunset"`
+		Solarnoon struct {
+			Time                string  `json:"time"`
+			DiscCentreElevation float64 `json:"disc_centre_elevation"`
+			Visible             bool    `json:"visible"`
+		} `json:"solarnoon"`
+		Solarmidnigth struct {
+			Time                string  `json:"time"`
+			DiscCentreElevation float64 `json:"disc_centre_elevation"`
+			Visible             bool    `json:"visible"`
+		} `json:"solararmidnigth"`
+	} `json:"properties"`
+}
+
+type moonResponse struct {
+	Copyright  string `json:"copyright"`
+	LicenseURL string `json:"licenseURL"`
+	Type       string `json:"type"`
+	Geometry   struct {
+		Type        string    `json:"type"`
+		Coordinates []float64 `json:"coordinates"`
+	} `json:"geometry"`
+	When struct {
+		Interval []string `json:"interval"`
+	} `json:"when"`
+	Properties struct {
+		Body     string `json:"body"`
+		Moonrise struct {
+			Time    string `json:"time"`
+			Azimuth string `json:"azimuth"`
+		} `json:"moonrise"`
+		Moonset struct {
+			Time    string `json:"time"`
+			Azimuth string `json:"azimuth"`
+		} `json:"moonset"`
+		HighMoon struct {
+			Time                string  `json:"time"`
+			DiscCentreElevation float64 `json:"disc_centre_elevation"`
+			Visible             bool    `json:"visible"`
+		} `json:"high_moon"`
+		LowMoon struct {
+			Time                string  `json:"time"`
+			DiscCentreElevation float64 `json:"disc_centre_elevation"`
+			Visible             bool    `json:"visible"`
+		} `json:"low_moon"`
+		Moonphase float64 `json:"moonphase"`
+	} `json:"properties"`
+}
+
 const (
 	yrURI       = "https://api.met.no/weatherapi/locationforecast/2.0/compact?"
 	geonamesURI = "http://api.geonames.org/searchJSON?"
+	sunURI      = "https://api.met.no/weatherapi/sunrise/3.0/"
 )
 
 func (c *yrConfig) Setup() {
@@ -173,6 +243,8 @@ func (c *yrConfig) conditionParser(dayInfo timeSeriesBlock) (iface.Cond, error) 
 
 	if val, ok := yrWeatherMap[dayInfo.Data.Next6Hours.Summary.SymbolCode]; ok {
 		ret.Code = val
+	} else if val, ok := yrWeatherMap[dayInfo.Data.Next1Hours.Summary.SymbolCode]; ok {
+		ret.Code = val
 	} else {
 		ret.Code = iface.CodeUnknown
 	}
@@ -224,6 +296,8 @@ func (c *yrConfig) dayParser(series []timeSeriesBlock, numDays int) []iface.Day 
 			day = new(iface.Day)
 			day.Date = slot.Time
 			day.Slots = append(day.Slots, slot)
+
+			log.Println("New day")
 		}
 	}
 
@@ -275,6 +349,49 @@ func (c *yrConfig) geonameParser(url string) (geoName string, geoCoordinates str
 
 }
 
+func (c *yrConfig) sunParser(url string, coord string, date string) (parsedAstroDay iface.Astro, err error) {
+	//Create a new HTTP client
+	client := &http.Client{}
+
+	var AstroDay iface.Astro
+
+	fmt.Println("In dato: " + date)
+
+	sunParsingURL := url + "sun?" + coord + "&" + date
+	//moonParsingURL := url + "moon?" + coord + "&" + date
+
+	// Create a new HTTP GET request
+	req, err := http.NewRequest("GET", sunParsingURL, nil)
+	if err != nil {
+		return AstroDay, fmt.Errorf("Failed to create request: %v", err)
+	}
+
+	// Set the custom User-Agent header
+	//req.Header.Set("User-Agent", "YrForWegoApp/1.0")
+
+	// Execute the request
+	res, err := client.Do(req)
+	if err != nil {
+		return AstroDay, fmt.Errorf("Unable to get (%s): %v", url, err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(res.Body)
+
+	//body, err := io.ReadAll(res.Body)
+	//if err != nil {
+	//	return "", "", fmt.Errorf("Unable to read response body (%s): %v", url, err)
+	//}
+	//if c.debug {
+	//	fmt.Printf("Response (%s):\n%s\n", url, string(body))
+	//}
+
+	return AstroDay, nil
+}
+
 func (c *yrConfig) fetch(url string) (*yrResponse, error) {
 	//c.debug = true
 	if c.debug {
@@ -291,7 +408,7 @@ func (c *yrConfig) fetch(url string) (*yrResponse, error) {
 	}
 
 	// Set the custom User-Agent header
-	req.Header.Set("User-Agent", "WegoApp/1.0 (microttus@gmail.com)")
+	req.Header.Set("User-Agent", "WegoApp/1.0 (https://github.com/Microttus/wego)")
 
 	// Execute the request
 	res, err := client.Do(req)
