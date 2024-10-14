@@ -109,8 +109,8 @@ type sunResponse struct {
 	Properties struct {
 		Body    string `json:"body"`
 		Sunrise struct {
-			Time    string `json:"time"`
-			Azimuth string `json:"azimuth"`
+			Time    string  `json:"time"`
+			Azimuth float64 `json:"azimuth"` // Changed from string to float64
 		} `json:"sunrise"`
 		Sunset struct {
 			Time    string  `json:"time"`
@@ -121,11 +121,11 @@ type sunResponse struct {
 			DiscCentreElevation float64 `json:"disc_centre_elevation"`
 			Visible             bool    `json:"visible"`
 		} `json:"solarnoon"`
-		Solarmidnigth struct {
+		Solarmidnight struct { // Corrected the field name
 			Time                string  `json:"time"`
 			DiscCentreElevation float64 `json:"disc_centre_elevation"`
 			Visible             bool    `json:"visible"`
-		} `json:"solararmidnigth"`
+		} `json:"solarmidnight"` // Corrected the JSON tag
 	} `json:"properties"`
 }
 
@@ -143,12 +143,12 @@ type moonResponse struct {
 	Properties struct {
 		Body     string `json:"body"`
 		Moonrise struct {
-			Time    string `json:"time"`
-			Azimuth string `json:"azimuth"`
+			Time    string  `json:"time"`
+			Azimuth float64 `json:"azimuth"` // Changed from string to float64
 		} `json:"moonrise"`
 		Moonset struct {
-			Time    string `json:"time"`
-			Azimuth string `json:"azimuth"`
+			Time    string  `json:"time"`
+			Azimuth float64 `json:"azimuth"` // Changed from string to float64
 		} `json:"moonset"`
 		HighMoon struct {
 			Time                string  `json:"time"`
@@ -271,7 +271,7 @@ func (c *yrConfig) conditionParser(dayInfo timeSeriesBlock) (iface.Cond, error) 
 	return ret, nil
 }
 
-func (c *yrConfig) dayParser(series []timeSeriesBlock, numDays int) []iface.Day {
+func (c *yrConfig) dayParser(series []timeSeriesBlock, numDays int, coordinates string) []iface.Day {
 	var forecast []iface.Day
 	var day *iface.Day
 
@@ -284,6 +284,9 @@ func (c *yrConfig) dayParser(series []timeSeriesBlock, numDays int) []iface.Day 
 		if day == nil {
 			day = new(iface.Day)
 			day.Date = slot.Time
+			dateString := day.Date.Format(time.DateOnly)
+			day.Astronomy.Sunrise, day.Astronomy.Sunset, err = c.sunParser(sunURI, coordinates, dateString)
+			day.Astronomy.Moonrise, day.Astronomy.Moonset, err = c.moonParser(sunURI, coordinates, dateString)
 		}
 		if day.Date.Day() == slot.Time.Day() {
 			day.Slots = append(day.Slots, slot)
@@ -296,8 +299,9 @@ func (c *yrConfig) dayParser(series []timeSeriesBlock, numDays int) []iface.Day 
 			day = new(iface.Day)
 			day.Date = slot.Time
 			day.Slots = append(day.Slots, slot)
-
-			log.Println("New day")
+			dateString := day.Date.Format(time.DateOnly)
+			day.Astronomy.Sunrise, day.Astronomy.Sunset, err = c.sunParser(sunURI, coordinates, dateString)
+			day.Astronomy.Moonrise, day.Astronomy.Moonset, err = c.moonParser(sunURI, coordinates, dateString)
 		}
 	}
 
@@ -349,30 +353,28 @@ func (c *yrConfig) geonameParser(url string) (geoName string, geoCoordinates str
 
 }
 
-func (c *yrConfig) sunParser(url string, coord string, date string) (parsedAstroDay iface.Astro, err error) {
+func (c *yrConfig) moonParser(url string, coord string, day string) (sunRise time.Time, sunSet time.Time, err error) {
+	// Sun
 	//Create a new HTTP client
 	client := &http.Client{}
 
-	var AstroDay iface.Astro
+	var emptyTime time.Time
 
-	fmt.Println("In dato: " + date)
-
-	sunParsingURL := url + "sun?" + coord + "&" + date
-	//moonParsingURL := url + "moon?" + coord + "&" + date
+	moonParsingURL := url + "moon?" + coord + "&date=" + day
 
 	// Create a new HTTP GET request
-	req, err := http.NewRequest("GET", sunParsingURL, nil)
+	req, err := http.NewRequest("GET", moonParsingURL, nil)
 	if err != nil {
-		return AstroDay, fmt.Errorf("Failed to create request: %v", err)
+		return emptyTime, emptyTime, fmt.Errorf("Failed to create request: %v", err)
 	}
 
 	// Set the custom User-Agent header
-	//req.Header.Set("User-Agent", "YrForWegoApp/1.0")
+	req.Header.Set("User-Agent", "WegoApp/1.0 (https://github.com/Microttus/wego)")
 
 	// Execute the request
 	res, err := client.Do(req)
 	if err != nil {
-		return AstroDay, fmt.Errorf("Unable to get (%s): %v", url, err)
+		return emptyTime, emptyTime, fmt.Errorf("Unable to get (%s): %v", url, err)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
@@ -381,15 +383,78 @@ func (c *yrConfig) sunParser(url string, coord string, date string) (parsedAstro
 		}
 	}(res.Body)
 
-	//body, err := io.ReadAll(res.Body)
-	//if err != nil {
-	//	return "", "", fmt.Errorf("Unable to read response body (%s): %v", url, err)
-	//}
-	//if c.debug {
-	//	fmt.Printf("Response (%s):\n%s\n", url, string(body))
-	//}
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return emptyTime, emptyTime, fmt.Errorf("Unable to get (%s): %v", url, err)
+	}
+	if c.debug {
+		fmt.Printf("Response (%s):\n%s\n", url, string(body))
+	}
 
-	return AstroDay, nil
+	var resp moonResponse
+	if err = json.Unmarshal(body, &resp); err != nil {
+		return emptyTime, emptyTime, fmt.Errorf("Unable to get (%s): %v", url, err)
+	}
+
+	layout := "2006-01-02T15:04Z07:00"
+	var yrMoonRise time.Time
+	var yrMoonSet time.Time
+	yrMoonRise, _ = time.Parse(layout, resp.Properties.Moonrise.Time)
+	yrMoonSet, _ = time.Parse(layout, resp.Properties.Moonset.Time)
+
+	return yrMoonRise, yrMoonSet, nil
+}
+
+func (c *yrConfig) sunParser(url string, coord string, day string) (sunRise time.Time, sunSet time.Time, err error) {
+	// Sun
+	//Create a new HTTP client
+	client := &http.Client{}
+
+	var emptyTime time.Time
+
+	sunParsingURL := url + "sun?" + coord + "&date=" + day
+
+	// Create a new HTTP GET request
+	req, err := http.NewRequest("GET", sunParsingURL, nil)
+	if err != nil {
+		return emptyTime, emptyTime, fmt.Errorf("Failed to create request: %v", err)
+	}
+
+	// Set the custom User-Agent header
+	req.Header.Set("User-Agent", "WegoApp/1.0 (https://github.com/Microttus/wego)")
+
+	// Execute the request
+	res, err := client.Do(req)
+	if err != nil {
+		return emptyTime, emptyTime, fmt.Errorf("Unable to get (%s): %v", url, err)
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(res.Body)
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return emptyTime, emptyTime, fmt.Errorf("Unable to get (%s): %v", url, err)
+	}
+	if c.debug {
+		fmt.Printf("Response (%s):\n%s\n", url, string(body))
+	}
+
+	var resp sunResponse
+	if err = json.Unmarshal(body, &resp); err != nil {
+		return emptyTime, emptyTime, fmt.Errorf("Unable to get (%s): %v", url, err)
+	}
+
+	layout := "2006-01-02T15:04Z07:00"
+	var yrSunRise time.Time
+	var yrSunSet time.Time
+	yrSunRise, _ = time.Parse(layout, resp.Properties.Sunrise.Time)
+	yrSunSet, _ = time.Parse(layout, resp.Properties.Sunset.Time)
+
+	return yrSunRise, yrSunSet, nil
 }
 
 func (c *yrConfig) fetch(url string) (*yrResponse, error) {
@@ -475,7 +540,7 @@ func (c *yrConfig) Fetch(location string, numdays int) iface.Data {
 	if numdays == 0 {
 		return ret
 	}
-	ret.Forecast = c.dayParser(resp.Properties.TimeSeries, numdays)
+	ret.Forecast = c.dayParser(resp.Properties.TimeSeries, numdays, loc)
 
 	return ret
 }
